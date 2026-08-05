@@ -476,7 +476,7 @@ const tools = [
       query: z.string().describe("Search query (case-insensitive)."),
       channel_id: snowflake.optional().describe("Optional. Restrict search to this channel ID."),
       author_id: snowflake.optional().describe("Optional. Only show messages from this user ID."),
-      limit: intIn(1, 100).default(25).describe("Max messages to return (1–100). Default 25."),
+      limit: intIn(1, 25).default(25).describe("Max messages to return (1–25). Default 25."),
     }),
     outputSchema: z.object({
       matches: z.array(
@@ -497,22 +497,26 @@ const tools = [
       });
 
       const data = result as {
-        messages: Array<
+        messages?: Array<
           Array<{
             id: string;
             content: string;
             timestamp: string;
             channel_id: string;
-            author: { username: string; discriminator: string };
+            author: { username: string };
           }>
         >;
+        retry_after?: number;
       };
+      // Discord answers 202 with an index-not-ready body that carries no `messages`
+      // key while it builds the guild's search index.
+      if (!data.messages)
+        throw new Error(
+          `Discord is still building this server's message search index. Retry in ${Math.ceil(data.retry_after ?? 5)}s.`,
+        );
       const matches = data.messages.flat().map((m) => ({
         id: m.id,
-        author:
-          m.author.discriminator === "0"
-            ? m.author.username
-            : `${m.author.username}#${m.author.discriminator}`,
+        author: m.author.username,
         content: m.content,
         timestamp: m.timestamp,
         channel_id: m.channel_id,
